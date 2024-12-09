@@ -1,26 +1,16 @@
 public struct AnyAsyncSequence<Element, Failure: Error>: AsyncSequence {
     
-    @available(iOS 18.0, *)
+    @available(iOS 18, *)
     public init(sequence: some AsyncSequence<Element, Failure>) {
         self.makeAsyncIteratorFunc = {
             AnyAsyncIterator(iterator: sequence.makeAsyncIterator())
         }
     }
     
-    @available(iOS 17.0, *)
-    @available(iOS, obsoleted: 18.0, message: "use the typed initializer.")
-    public init(sequence: any AsyncSequence) {
-        guard #unavailable(iOS 18.0)
-        else {
-            preconditionFailure("This should have triggered an error during build")
-        }
-        self.init(legacy: sequence)
-    }
-    
-    // accessible for testing
-    internal init(element: Element.Type = Element.self, failure: Failure.Type = Failure.self, legacy: any AsyncSequence) {
+    @_disfavoredOverload
+    public init<S: AsyncSequence>(sequence: S) where Element == S.Element, Failure == any Error {
         self.makeAsyncIteratorFunc = {
-            return AnyAsyncIterator(element: Element.self, failure: Failure.self, legacyIterator: legacy.makeAsyncIterator())
+            AnyAsyncIterator(legacyIterator: sequence.makeAsyncIterator())
         }
     }
     
@@ -40,35 +30,25 @@ public struct AnyAsyncIterator<Element, Failure: Error>: AsyncIteratorProtocol {
     fileprivate init(iterator: some AsyncIteratorProtocol<Element, Failure>) {
         self.iterator = ModernIterator(iterator: iterator)
     }
-    
-    @available(iOS 17.0, *)
-    @available(iOS, obsoleted: 18.0, message: "use the typed initializer.")
-    fileprivate init<I: AsyncIteratorProtocol>(element: Element.Type, failure: Failure.Type, legacyIterator: I) {
-        if #available(iOS 18.0, *) {
-#if DEBUG
-            precondition(ProcessInfo.processInfo.isTesting, "This should have triggered an error during build")
-#else
-            precondition("This should have triggered an error during build")
-#endif
-        }
+    fileprivate init<I: AsyncIteratorProtocol>(legacyIterator: I) where Element == I.Element, Failure == any Error {
         self.iterator = legacyIterator
     }
     var iterator: any AsyncIteratorProtocol
     
     @available(iOS 18.0, macOS 18.0, tvOS 18.0, watchOS 18.0, *)
-    var modern: ModernIterator<Element, Failure> {
+    var modernIterator: (any AsyncIteratorProtocol<Element, Failure>) {
         _read {
-            yield (iterator as! ModernIterator<Element, Failure>)
+            yield (iterator as! (any AsyncIteratorProtocol<Element, Failure>))
         }
         _modify {
-            var it = (iterator as! ModernIterator<Element, Failure>)
+            var it = (iterator as! (any AsyncIteratorProtocol<Element, Failure>))
             yield &it
             iterator = it
         }
     }
     @available(iOS 18.0, *)
     public mutating func next(isolation isolatedToActor: isolated (any Actor)?) async throws(Failure) -> Element? {
-        try await modern.next(isolation: isolatedToActor)
+        try await modernIterator.next(isolation: isolatedToActor)
     }
     
     public mutating func next() async throws(Failure) -> Element? {
